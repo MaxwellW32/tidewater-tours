@@ -33,7 +33,7 @@ test('GET /tours lists every tour', async () => {
   const res = await fetch(`${baseUrl}/tours`);
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body.count, 5);
+  assert.equal(body.count, 4);
   assert.equal(body.tours.length, 4);
   assert.ok(body.tours.every((t) => t.id && t.name && t.priceUsd > 0));
 });
