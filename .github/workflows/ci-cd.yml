@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -40,7 +40,7 @@ jobs:
     outputs:
       image: ${{ steps.meta.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Work out image tags
         id: meta
@@ -50,17 +50,17 @@ jobs:
           echo "image=ghcr.io/${repo}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "latest=ghcr.io/${repo}:latest"       >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -73,9 +73,11 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Image summary
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
         run: |
           echo "### Image pushed" >> "$GITHUB_STEP_SUMMARY"
-          echo '`${{ steps.meta.outputs.image }}`' >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy to VPS
@@ -92,17 +94,37 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          # Stop with a plain-English error if a secret is missing, not a cryptic ssh one.
+          missing=""
+          [ -n "$VPS_HOST" ]    || missing="$missing VPS_HOST"
+          [ -n "$VPS_USER" ]    || missing="$missing VPS_USER"
+          [ -n "$VPS_SSH_KEY" ] || missing="$missing VPS_SSH_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error title=Missing secrets::Add these in Settings > Secrets and variables > Actions:$missing"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           # tr strips Windows line endings in case the key was pasted from a CRLF file.
           printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1 </dev/null; then
+            echo "::error title=Bad SSH key::VPS_SSH_KEY must be the whole private key file, BEGIN and END lines included, with no passphrase."
+            exit 1
+          fi
+
+          ssh-keyscan -T 10 -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error title=VPS unreachable::No SSH answer from VPS_HOST on port $VPS_PORT. Check the IP, the port and the VPS firewall."
+            exit 1
+          fi
+
           cat >> ~/.ssh/config <<EOC
           Host vps
             HostName $VPS_HOST
@@ -110,7 +132,25 @@ jobs:
             Port $VPS_PORT
             IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
+            BatchMode yes
+            ConnectTimeout 15
           EOC
+
+      - name: Check the VPS is ready
+        run: |
+          if ! ssh vps true; then
+            echo "::error title=SSH login refused::The VPS rejected the key for VPS_USER. Put the matching public key in that user's ~/.ssh/authorized_keys (deploy/vps-setup.sh does this)."
+            exit 1
+          fi
+          if ! ssh vps 'docker info >/dev/null 2>&1'; then
+            echo "::error title=Docker not usable::VPS_USER cannot run docker. Install Docker and add the user to the docker group (deploy/vps-setup.sh does both)."
+            exit 1
+          fi
+          if ! ssh vps 'test -w /opt/tidewater/state'; then
+            echo "::error title=Server not prepared::/opt/tidewater is missing or not writable by VPS_USER. Run deploy/vps-setup.sh once on the VPS."
+            exit 1
+          fi
+          echo "VPS ready: SSH login, docker and /opt/tidewater all OK"
 
       - name: Copy deploy scripts to the VPS
         run: |
@@ -123,12 +163,14 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: |
+          # $IMAGE and $GHCR_USER are expanded here on purpose; \$? and \$rc run on the VPS.
           # The token travels over stdin, never on a command line. docker login caches it in
           # ~/.docker/config.json on the VPS, so log out again whatever the script returns.
+          # shellcheck disable=SC2029
           echo "$GHCR_TOKEN" | ssh vps "docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null \
             && /opt/tidewater/bin/deploy.sh '$IMAGE'; rc=\$?; docker logout ghcr.io >/dev/null; exit \$rc"
 
       - name: Deployment summary
         run: |
           echo "### Deployed" >> "$GITHUB_STEP_SUMMARY"
-          echo '`'"$IMAGE"'` is live and passed /health' >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE\` is live and passed /health" >> "$GITHUB_STEP_SUMMARY"

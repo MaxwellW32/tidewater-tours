@@ -46,7 +46,7 @@ image. Pull requests run only the `test` job, so reviewers see red or green befo
 | Step type | `uses:` a marketplace action vs `run:` a shell script | Marketplace for checkout, Node, Docker login/build; plain shell for SSH, so the deploy is readable |
 | Deploy strategy | **Recreate** (stop old, start new), **rolling**, **blue/green**, **canary** | Recreate: one container swapped in place. A second or two of downtime, trivial to explain. Blue/green would need a proxy in front |
 | Registry | GitHub Container Registry (ghcr.io), Docker Hub, AWS ECR | ghcr.io: free with the repo, `GITHUB_TOKEN` logs in, no extra account |
-| Action versions | Pinned by major tag (`@v4`) vs by commit SHA | Major tags: readable and auto-patched. SHA pinning is stricter for supply-chain safety |
+| Action versions | Pinned by major tag (`@v7`) vs by commit SHA | Major tags: readable and auto-patched. SHA pinning is stricter for supply-chain safety. Majors still need bumping by hand (see Limits: Node 20) |
 
 ## 4. Alternatives: what else could solve the same problem?
 
@@ -84,6 +84,13 @@ values in logs.
 
 Other limits worth knowing:
 
+* **The platform moves under you.** My first run used `actions/checkout@v4`, which is
+  built on Node 20. GitHub removed Node 20 from its runners on 23 September 2026, so the
+  run carried the warning "Node.js 20 is deprecated... being forced to run on Node.js 24".
+  It still worked, but I bumped every action to its Node 24 major (`checkout@v7`,
+  `setup-node@v7`, `setup-buildx-action@v4`, `login-action@v4`, `build-push-action@v7`)
+  after checking their release notes for breaking changes. Catch it by reading the
+  annotations on every run, not just the green tick.
 * **Nothing persists between jobs.** `deploy` cannot see the image `build-and-push`
   made; it must pull it from the registry. That is why the registry is the source of truth.
 * **Drift.** The server is set up once by `vps-setup.sh`; if someone changes it by hand,
