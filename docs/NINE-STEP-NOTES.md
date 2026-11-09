@@ -1,43 +1,22 @@
 # Nine-step notes: GitHub Actions
 
-Tool: **GitHub Actions**, as used in this repo to test, build, deploy and roll back the
-Tidewater Tours API. Structure follows the nine Apex steps from the Apex Pack outline,
-with the evidence each step asks for.
-
-> Draft written from what this pipeline actually does. Rewrite each step in your own
-> words before handing in: the rubric marks "copied" notes down and the interview asks
-> why-questions without notes. Keep the examples; they are from this repo.
-
----
-
 ## 1. Purpose: why does it exist?
 
-*Evidence: a three-sentence explanation in my own words.*
-
-Tidewater Tours deployed by hand: someone built on a laptop, copied the result to the
-server and restarted it, with no record and no gate. GitHub Actions exists so that a code
-change becomes a release the same way every time, with the tests, the build and the
-deploy run by a machine that refuses to continue when a step fails. It turns "I pushed"
-into "the new version is live and healthy, and here is the log that proves it".
+Tidewater Tours used to be deployed by hand: someone built on a laptop, copied the result to the
+server and restarted it, with no record and no gate. We use GitHub Actions so that a code
+change becomes a release the same way every time. One simple way to push a change, have it tested and for the new version to be tested live and healthy.
 
 ## 2. Use: what is it used for in real work?
-
-*Evidence: a use-case note with one real example.*
 
 Typical uses: run tests on every pull request, build and tag container images, deploy to
 staging and production, run scheduled jobs (nightly dependency scans), and give humans a
 button for rare operations such as a rollback.
 
-**Real example from this repo.** A push to `main` triggers `ci-cd.yml`. Job `test` runs
-`npm test`. Only if it passes does `build-and-push` build the Dockerfile, tag the image
-`ghcr.io/<owner>/tidewater-tours:<commit-sha>` and push it. Only then does `deploy` SSH
-to the VPS, run `deploy.sh`, and wait for `GET /health` to return the new SHA. A second
-workflow, `rollback.yml`, is a manual *Run workflow* button that restores the previous
-image. Pull requests run only the `test` job, so reviewers see red or green before merging.
+**Real example is from this repo.** A push to `main` triggers `ci-cd.yml`. Job `test` runs
+`npm test`. Only if it passes does `build-and-push` then `deploy` SSH
+to the VPS
 
 ## 3. Versions: what versions or types exist?
-
-*Evidence: a short comparison table.*
 
 | Dimension | Options | What this project uses and why |
 |---|---|---|
@@ -49,8 +28,6 @@ image. Pull requests run only the `test` job, so reviewers see red or green befo
 | Action versions | Pinned by major tag (`@v7`) vs by commit SHA | Major tags: readable and auto-patched. SHA pinning is stricter for supply-chain safety. Majors still need bumping by hand (see Limits: Node 20) |
 
 ## 4. Alternatives: what else could solve the same problem?
-
-*Evidence: an alternatives matrix with when to pick each.*
 
 | Option | Pick it when | Not here because |
 |---|---|---|
@@ -67,8 +44,6 @@ not change.
 
 ## 5. Limits: where does it fail or become risky?
 
-*Evidence: a risk note naming two failure modes and how to catch them.*
-
 **Failure mode 1: a green pipeline ships a broken service.** Tests can be thin or flaky,
 and a container can pass `npm test` yet crash on start (wrong port, missing env). Catch:
 `deploy.sh` polls `/health` for 20 s after the swap; if it never answers, the script
@@ -83,18 +58,6 @@ command line; `.gitignore` blocks `deploy_key` and `*.pem`; and Actions masks se
 values in logs.
 
 Other limits worth knowing:
-
-* **The platform moves under you.** My first run used `actions/checkout@v4`, which is
-  built on Node 20. GitHub removed Node 20 from its runners on 23 September 2026, so the
-  run carried the warning "Node.js 20 is deprecated... being forced to run on Node.js 24".
-  It still worked, but I bumped every action to its Node 24 major (`checkout@v7`,
-  `setup-node@v7`, `setup-buildx-action@v4`, `login-action@v4`, `build-push-action@v7`)
-  after checking their release notes for breaking changes. Catch it by reading the
-  annotations on every run, not just the green tick.
-* **Nothing persists between jobs.** `deploy` cannot see the image `build-and-push`
-  made; it must pull it from the registry. That is why the registry is the source of truth.
-* **Drift.** The server is set up once by `vps-setup.sh`; if someone changes it by hand,
-  the pipeline will not know. Infrastructure as code (Terraform) is the next step.
 * **Trust on first use.** `ssh-keyscan` accepts whatever host key the server presents.
   Pinning the key in a secret closes that gap.
 * **Budget.** Private repos get 2,000 free minutes a month; every job here has
@@ -128,8 +91,6 @@ Grafana panel would be the Week 6 follow-up.
 
 ## 7. Configuration: what settings matter?
 
-*Evidence: a config walkthrough with no secrets in the repo.*
-
 `.github/workflows/ci-cd.yml`:
 
 | Setting | Value | Why it matters |
@@ -157,8 +118,6 @@ Server-side configuration lives in `deploy/common.sh` as overridable env vars:
 `APP_NAME`, `APP_PORT`, `STATE_DIR`, `HEALTH_RETRIES`. Nothing there is secret.
 
 ## 8. Procedures: how do we run, test, deploy, roll back and troubleshoot it?
-
-*Evidence: a runbook entry and a rollback plan. Full version: `docs/RUNBOOK.md`.*
 
 * **Run locally:** `npm ci && npm start`, then `curl localhost:8080/health`.
 * **Test:** `npm test` (5 tests, boots the app on a random port). Same command CI runs.

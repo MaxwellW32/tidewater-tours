@@ -1,6 +1,6 @@
 # Runbook: Tidewater Tours API
 
-**Service:** `tidewater-tours` container on the VPS, port 8080. **Registry:** `ghcr.io/<owner>/tidewater-tours:<commit-sha>`.
+**Service:** `tidewater-tours` container on the VPS, port 8080. 
 **Health:** `curl http://<vps>:8080/health` → `{"status":"ok","version":"<sha>",...}`. The `version` is the git commit that is live.
 
 ## Deploy
